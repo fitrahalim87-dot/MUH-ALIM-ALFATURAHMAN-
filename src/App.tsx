@@ -25,6 +25,8 @@ import {
   Play,
   RotateCcw,
   Sparkles,
+  Maximize2,
+  Minimize2,
   Link as LinkIcon
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -87,6 +89,7 @@ export default function App() {
   const [imagePrompt, setImagePrompt] = useState("");
   const [projects, setProjects] = useState<ProjectData[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   
   // Form State
   const [mangaTitle, setMangaTitle] = useState("");
@@ -104,7 +107,25 @@ export default function App() {
   useEffect(() => {
     const saved = localStorage.getItem("aniki-projects");
     if (saved) setProjects(JSON.parse(saved));
+
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch((err) => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
 
   const syncStorage = (data: ProjectData[]) => {
     try {
@@ -285,12 +306,21 @@ export default function App() {
           </div>
           <h1 className="font-tech font-black text-sm tracking-tighter italic uppercase">ANIKI <span className="text-white">IF</span></h1>
         </div>
-        <button 
-          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="p-2 text-neon-cyan"
-        >
-          {isSidebarOpen ? <RotateCcw size={20} /> : <Layers size={20} />}
-        </button>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={toggleFullscreen}
+            className="p-2 text-white/50 hover:text-neon-yellow transition-colors"
+            title="Full Screen"
+          >
+            {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+          </button>
+          <button 
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="p-2 text-neon-cyan"
+          >
+            {isSidebarOpen ? <RotateCcw size={20} /> : <Layers size={20} />}
+          </button>
+        </div>
       </header>
 
       {/* Sidebar Overlay */}
@@ -334,6 +364,13 @@ export default function App() {
             active={activeTab === "projects"} 
             onClick={() => { setActiveTab("projects"); setIsSidebarOpen(false); }} 
           />
+          <button 
+            onClick={toggleFullscreen}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 group text-[10px] font-tech uppercase tracking-widest text-white/50 hover:text-white hover:bg-white/5 mt-auto"
+          >
+            {isFullscreen ? <Minimize2 size={14} className="text-neon-yellow" /> : <Maximize2 size={14} className="text-neon-cyan group-hover:scale-110 transition-transform" />}
+            {isFullscreen ? "KELUAR FULLSCREEN" : "LAYAR PENUH"}
+          </button>
         </nav>
 
         <div className="mt-auto glass-card border-neon-yellow/20 p-3">
