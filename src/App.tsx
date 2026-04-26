@@ -1,0 +1,976 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useRef } from "react";
+import { 
+  Zap, 
+  Layers, 
+  Image as ImageIcon, 
+  FileText, 
+  Download, 
+  Copy, 
+  Check, 
+  ChevronRight, 
+  FolderPlus, 
+  Trash2, 
+  History,
+  Terminal,
+  Play,
+  RotateCcw,
+  Sparkles,
+  Link as LinkIcon
+} from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { useDropzone } from "react-dropzone";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+import { 
+  generateRecapScript, 
+  parseGeminiResponse, 
+  generateHooks,
+  generateCTR,
+  generateCoverImage,
+  ProjectData, 
+  FormatType, 
+  ScriptStyle, 
+  ScriptMode 
+} from "./services/geminiService";
+import confetti from "canvas-confetti";
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+// --- Components ---
+
+const SidebarItem = ({ icon: Icon, label, active, onClick }: { icon: any, label: string, active?: boolean, onClick: () => void }) => (
+  <button 
+    onClick={onClick}
+    className={cn(
+      "w-full flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 group text-[10px] font-tech uppercase tracking-widest",
+      active 
+        ? "bg-neon-yellow text-black glow-yellow" 
+        : "text-white/50 hover:text-white hover:bg-white/5"
+    )}
+  >
+    <Icon size={14} className={cn(active ? "text-black" : "text-neon-cyan group-hover:scale-110 transition-transform")} />
+    {label}
+  </button>
+);
+
+const FeatureCard = ({ title, value, icon: Icon }: { title: string, value: string, icon: any }) => (
+  <div className="glass-card border-white/5 flex flex-col gap-1 min-w-[150px]">
+    <div className="flex items-center gap-2 text-neon-cyan text-[10px] font-tech uppercase font-bold tracking-widest">
+      <Icon size={12} />
+      {title}
+    </div>
+    <div className="text-lg font-mono text-neon-yellow truncate">{value}</div>
+  </div>
+);
+
+// --- Main App ---
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<"create" | "projects">("create");
+  const [step, setStep] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [isGeneratingHook, setIsGeneratingHook] = useState(false);
+  const [isGeneratingCTR, setIsGeneratingCTR] = useState(false);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [imagePrompt, setImagePrompt] = useState("");
+  const [projects, setProjects] = useState<ProjectData[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  
+  // Form State
+  const [mangaTitle, setMangaTitle] = useState("");
+  const [format, setFormat] = useState<FormatType>("Manhwa");
+  const [style, setStyle] = useState<ScriptStyle>("Santai Tongkrongan");
+  const [mode, setMode] = useState<ScriptMode>("Kilat");
+  const [minWords, setMinWords] = useState(250);
+  const [maxWords, setMaxWords] = useState(500);
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
+  const [mangaLink, setMangaLink] = useState("");
+  
+  // Results State
+  const [currentProject, setCurrentProject] = useState<Partial<ProjectData> | null>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("aniki-projects");
+    if (saved) setProjects(JSON.parse(saved));
+  }, []);
+
+  const syncStorage = (data: ProjectData[]) => {
+    try {
+      localStorage.setItem("aniki-projects", JSON.stringify(data));
+    } catch (e) {
+      console.error("Storage limit reached:", e);
+      if (data.length > 5) {
+        const trimmed = data.slice(0, 5);
+        localStorage.setItem("aniki-projects", JSON.stringify(trimmed));
+        setProjects(trimmed);
+        alert("Penyimpanan hampir penuh! Hanya 5 proyek terbaru yang dipertahankan.");
+      }
+    }
+  };
+
+  const saveProject = (project: ProjectData) => {
+    // Optimized project for storage (remove raw input images but keep AI generated assets)
+    const storageProject = { ...project, images: [] }; 
+    const newProjects = [storageProject as ProjectData, ...projects];
+    
+    setProjects(newProjects);
+    syncStorage(newProjects);
+    
+    confetti({
+      particleCount: 150,
+      spread: 70,
+      origin: { y: 0.6 },
+      colors: ["#facc15", "#22d3ee"]
+    });
+  };
+
+  const handleGenerate = async () => {
+    if (!mangaTitle) return alert("Masukkan judul dulu, cuy!");
+    setLoading(true);
+    setStep(2);
+    
+    try {
+      const rawResponse = await generateRecapScript({
+        mangaTitle,
+        format,
+        style,
+        mode,
+        minWords,
+        maxWords,
+        imageDatas: uploadedImages
+      });
+      
+      const parsed = parseGeminiResponse(rawResponse);
+      const project: ProjectData = {
+        id: Date.now().toString(),
+        title: `${mangaTitle} - ${new Date().toLocaleDateString()}`,
+        mangaTitle,
+        format,
+        style,
+        mode,
+        script: rawResponse,
+        ...parsed,
+        images: uploadedImages,
+        generatedAssets: [],
+        createdAt: Date.now()
+      };
+      
+      setCurrentProject(project);
+      setStep(3);
+    } catch (err) {
+      console.error(err);
+      alert("Waduh, koneksi ke AI gagal. Coba lagi nanti ya!");
+      setStep(1);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onDrop = async (acceptedFiles: File[]) => {
+    const filePromises = acceptedFiles.map(file => {
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    });
+
+    try {
+      const results = await Promise.all(filePromises);
+      setUploadedImages(prev => [...prev, ...results]);
+    } catch (err) {
+      console.error("Error reading files:", err);
+      alert("Gagal membaca beberapa file.");
+    }
+  };
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
+    onDrop,
+    accept: { 'image/*': [] },
+    multiple: true
+  } as any);
+
+  const handleAddHook = async () => {
+    if (!currentProject?.script) return;
+    setIsGeneratingHook(true);
+    try {
+      const hooks = await generateHooks(currentProject.script);
+      const updated = { ...currentProject, hooks: [...(currentProject.hooks || []), ...hooks] };
+      setCurrentProject(updated);
+      saveProject(updated as ProjectData);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsGeneratingHook(false);
+    }
+  };
+
+  const handleAddCTR = async () => {
+    if (!currentProject?.script) return;
+    setIsGeneratingCTR(true);
+    try {
+      const { titles, thumbnails } = await generateCTR(currentProject.script);
+      const updated = { 
+        ...currentProject, 
+        youtubeTitles: [...(currentProject.youtubeTitles || []), ...titles],
+        thumbnailIdeas: [...(currentProject.thumbnailIdeas || []), ...thumbnails]
+      };
+      setCurrentProject(updated);
+      saveProject(updated as ProjectData);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsGeneratingCTR(false);
+    }
+  };
+
+  const handleGenerateImage = async () => {
+    if (!imagePrompt) return alert("Masukkan prompt gambar dulu, cuy!");
+    setIsGeneratingImage(true);
+    try {
+      const imageUrl = await generateCoverImage({ prompt: imagePrompt });
+      if (imageUrl && currentProject) {
+        const updated = {
+          ...currentProject,
+          generatedAssets: [...(currentProject.generatedAssets || []), imageUrl]
+        };
+        setCurrentProject(updated);
+        saveProject(updated as ProjectData);
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Gagal bikin gambar, cuy.");
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    // Simple toast or active state could be added here
+  };
+
+  const downloadText = (filename: string, content: string) => {
+    const element = document.createElement("a");
+    const file = new Blob([content], { type: 'text/plain' });
+    element.href = URL.createObjectURL(file);
+    element.download = filename;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col lg:flex-row selection:bg-neon-cyan selection:text-black">
+      <div className="scanline" />
+      
+      {/* Mobile Header */}
+      <header className="lg:hidden flex items-center justify-between p-4 bg-black/80 backdrop-blur-xl border-b border-white/10 sticky top-0 z-50">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-neon-yellow flex items-center justify-center font-black text-black text-sm rounded-sm -skew-x-12 glow-yellow">
+            AK
+          </div>
+          <h1 className="font-tech font-black text-sm tracking-tighter italic uppercase">ANIKI <span className="text-white">IF</span></h1>
+        </div>
+        <button 
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="p-2 text-neon-cyan"
+        >
+          {isSidebarOpen ? <RotateCcw size={20} /> : <Layers size={20} />}
+        </button>
+      </header>
+
+      {/* Sidebar Overlay */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[45] lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+      
+      {/* Sidebar */}
+      <aside className={cn(
+        "fixed inset-y-0 left-0 w-64 border-r border-white/10 bg-black/90 lg:bg-black/50 backdrop-blur-xl p-6 flex flex-col gap-8 z-50 transition-transform duration-300 transform lg:translate-x-0 lg:sticky lg:top-0 h-screen",
+        isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
+        <div className="hidden lg:flex items-center gap-3">
+          <div className="w-10 h-10 bg-neon-yellow flex items-center justify-center font-black text-black text-xl rounded-sm -skew-x-12 glow-yellow">
+            AK
+          </div>
+          <div>
+            <h1 className="font-tech font-black text-lg tracking-tighter italic uppercase leading-none">ANIKI <span className="text-white">IF</span></h1>
+            <p className="text-[10px] uppercase tracking-widest text-neon-cyan leading-none mt-1">Manga Recap AI System</p>
+          </div>
+        </div>
+
+        <nav className="flex flex-col gap-2">
+          <SidebarItem 
+            icon={Zap} 
+            label="TEMPA NASKAH" 
+            active={activeTab === "create"} 
+            onClick={() => { setActiveTab("create"); setIsSidebarOpen(false); }} 
+          />
+          <SidebarItem 
+            icon={History} 
+            label="PROYEK SAYA" 
+            active={activeTab === "projects"} 
+            onClick={() => { setActiveTab("projects"); setIsSidebarOpen(false); }} 
+          />
+        </nav>
+
+        <div className="mt-auto glass-card border-neon-yellow/20 p-3">
+          <div className="text-[10px] uppercase font-tech text-neon-yellow mb-2">System Status</div>
+          <div className="flex items-center gap-2 text-xs">
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            AI Core: Online
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 p-4 lg:p-8 relative">
+        <AnimatePresence mode="wait">
+          {activeTab === "create" ? (
+            <motion.div 
+              key="create"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="max-w-5xl mx-auto"
+            >
+              {/* Header Title */}
+              <div className="mb-8 lg:mb-12 flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6">
+                <div>
+                  <h2 className="text-3xl lg:text-4xl font-black font-tech uppercase tracking-tighter mb-2">
+                    RECAP <span className="text-neon-yellow">GENERATOR</span>
+                  </h2>
+                  <p className="text-white/50 text-sm lg:text-base max-w-lg">
+                    Ubah Chapter Manga/Manhwa jadi script narasi viral YouTube otomatis.
+                  </p>
+                </div>
+                
+                {/* Step Visualizer */}
+                <div className="w-full lg:w-auto flex items-center justify-center lg:justify-start gap-1 bg-black/40 p-1 rounded-full border border-white/10">
+                  {[1, 2, 3].map((s) => (
+                    <div 
+                      key={s} 
+                      className={cn(
+                        "flex-1 lg:flex-none text-center lg:px-6 py-1.5 rounded-full text-[9px] lg:text-[10px] font-bold transition-all duration-300 uppercase tracking-wider whitespace-nowrap",
+                        step === s 
+                          ? "bg-neon-yellow text-black shadow-[0_0_15px_rgba(239,255,0,0.3)]" 
+                          : "text-white/40"
+                      )}
+                    >
+                      {s === 1 ? "1. BAHAN" : s === 2 ? "2. ANALISIS" : "3. SELESAI"}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Step 1: Input Bahan */}
+              {step === 1 && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <div className="space-y-6">
+                    <div className="glass-card border-white/10 p-6 space-y-6">
+                      <h3 className="text-xs font-bold uppercase text-neon-cyan flex items-center gap-2">
+                        <Terminal size={14} /> 1. Konfigurasi Proyek
+                      </h3>
+                      
+                      <div className="space-y-1">
+                        <label className="text-[10px] uppercase font-tech text-white/50 tracking-wider">Judul Manga / Manhwa</label>
+                        <input 
+                          type="text" 
+                          value={mangaTitle}
+                          onChange={(e) => setMangaTitle(e.target.value)}
+                          placeholder="Solo Leveling: Jeju Island Arc" 
+                          className="w-full bg-black/50 border border-white/20 rounded px-4 py-2 text-sm text-neon-yellow outline-none focus:border-neon-yellow transition-all"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] uppercase font-tech text-white/50 tracking-wider">Jumlah Kata</label>
+                          <span className="text-[10px] font-tech text-neon-cyan">{minWords} - {maxWords} KATA</span>
+                        </div>
+                        <div className="flex gap-4">
+                          <div className="flex-1 space-y-1">
+                            <span className="text-[8px] text-white/30 uppercase">Min</span>
+                            <input 
+                              type="range" 
+                              min="50" 
+                              max="3000" 
+                              step="50"
+                              value={minWords}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value);
+                                setMinWords(val);
+                                if (val > maxWords) setMaxWords(val);
+                              }}
+                              className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-neon-yellow"
+                            />
+                          </div>
+                          <div className="flex-1 space-y-1">
+                            <span className="text-[8px] text-white/30 uppercase">Max</span>
+                            <input 
+                              type="range" 
+                              min="50" 
+                              max="3000" 
+                              step="50"
+                              value={maxWords}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value);
+                                setMaxWords(val);
+                                if (val < minWords) setMinWords(val);
+                              }}
+                              className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-neon-cyan"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-xs uppercase font-tech text-white/60 tracking-wider">Format</label>
+                          <div className="flex p-1 bg-black/50 border border-white/10 rounded-lg">
+                            {(["Manga", "Manhwa"] as FormatType[]).map((f) => (
+                              <button
+                                key={f}
+                                onClick={() => setFormat(f)}
+                                className={cn(
+                                  "flex-1 py-2 text-xs font-tech rounded-md transition-all",
+                                  format === f ? "bg-neon-cyan text-black" : "text-white/40 hover:text-white"
+                                )}
+                              >
+                                {f}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs uppercase font-tech text-white/60 tracking-wider">Mode</label>
+                          <div className="flex p-1 bg-black/50 border border-white/10 rounded-lg">
+                            {(["Kilat", "Seri"] as ScriptMode[]).map((m) => (
+                              <button
+                                key={m}
+                                onClick={() => setMode(m)}
+                                className={cn(
+                                  "flex-1 py-2 text-xs font-tech rounded-md transition-all",
+                                  mode === m ? "bg-neon-cyan text-black" : "text-white/40 hover:text-white"
+                                )}
+                              >
+                                {m}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-xs uppercase font-tech text-white/60 tracking-wider">Gaya Narasi AI</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(["Santai Tongkrongan", "Storytelling Serius", "Dramatis", "Funny / Roasting", "Cinematic Trailer", "Meme Recap"] as ScriptStyle[]).map((s) => (
+                            <button
+                              key={s}
+                              onClick={() => setStyle(s)}
+                              className={cn(
+                                "py-3 px-4 text-[10px] font-tech text-left rounded-lg border transition-all",
+                                style === s 
+                                  ? "bg-neon-cyan/10 border-neon-cyan text-neon-cyan" 
+                                  : "bg-black/20 border-white/10 text-white/40 hover:border-white/30"
+                              )}
+                            >
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="glass-card border-neon-magenta/30 p-6 space-y-4">
+                       <h3 className="font-tech uppercase text-neon-magenta flex items-center gap-2">
+                        <Download size={18} /> Bulk Image Downloader
+                      </h3>
+                      <div className="flex gap-2">
+                        <input 
+                          type="text" 
+                          value={mangaLink}
+                          onChange={(e) => setMangaLink(e.target.value)}
+                          placeholder="Masukkan link web manga (optional)..." 
+                          className="flex-1 bg-black/50 border border-white/10 rounded-lg px-4 py-2 text-xs outline-none focus:border-neon-magenta"
+                        />
+                        <button className="px-4 py-2 bg-neon-magenta/20 text-neon-magenta border border-neon-magenta/40 rounded-lg text-[10px] font-tech hover:bg-neon-magenta/30 transition-all">
+                          EXTRACT
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-white/30 italic">*Fitur ini akan mengekstrak semua panel dari link yang diberikan.</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="glass-card border-neon-yellow/30 p-6 space-y-4 min-h-[300px] flex flex-col">
+                      <h3 className="font-tech uppercase text-neon-yellow flex items-center gap-2">
+                        <ImageIcon size={18} /> Upload Panel Pelengkap
+                      </h3>
+                      
+                      <div 
+                        {...getRootProps()} 
+                        className={cn(
+                          "flex-1 border-2 border-dashed rounded-xl flex flex-col items-center justify-center p-8 transition-all cursor-pointer",
+                          isDragActive ? "border-neon-yellow bg-neon-yellow/5" : "border-white/10 hover:border-neon-yellow/50"
+                        )}
+                      >
+                        <input {...getInputProps()} />
+                        <Sparkles className="text-neon-yellow mb-4 animate-bounce" size={40} />
+                        <p className="text-sm font-tech text-white text-center">Drag & Drop Panel Manga</p>
+                        <p className="text-[10px] text-white/40 mt-1">AI akan menganalisis panel ini untuk script</p>
+                      </div>
+
+                      {uploadedImages.length > 0 && (
+                        <div className="space-y-2 mt-4">
+                          <div className="flex justify-between items-center px-1">
+                            <span className="text-[10px] font-tech text-white/40 uppercase tracking-widest">{uploadedImages.length} Panel Terpilih</span>
+                            <button 
+                              onClick={() => setUploadedImages([])}
+                              className="text-[10px] font-tech text-red-400 hover:text-red-300 uppercase tracking-widest"
+                            >
+                              Bersihkan Semua
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
+                            {uploadedImages.map((img, i) => (
+                              <div key={i} className="relative group aspect-square">
+                                <img src={img} className="w-full h-full object-cover rounded border border-white/10" />
+                                <div className="absolute top-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[8px] font-tech text-neon-yellow border border-neon-yellow/30">
+                                  #{i + 1}
+                                </div>
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setUploadedImages(prev => prev.filter((_, idx) => idx !== i));
+                                  }}
+                                  className="absolute top-1 right-1 p-1 bg-black/80 text-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                  <Trash2 size={10} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <button 
+                      onClick={handleGenerate}
+                      className="w-full py-6 tech-button tech-button-yellow text-xl group"
+                    >
+                      <span className="flex items-center justify-center gap-3">
+                        GENERATE RECAP <ChevronRight className="group-hover:translate-x-1 transition-transform" />
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 2: Loading / Analysis */}
+              {step === 2 && (
+                <div className="flex flex-col items-center justify-center py-20 space-y-8">
+                  <div className="relative w-48 h-48">
+                    <motion.div 
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                      className="absolute inset-0 rounded-full border-4 border-t-neon-cyan border-white/5"
+                    />
+                    <motion.div 
+                      animate={{ rotate: -360 }}
+                      transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                      className="absolute inset-4 rounded-full border-4 border-b-neon-yellow border-white/5"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Zap size={48} className="text-neon-cyan animate-pulse" />
+                    </div>
+                  </div>
+                  
+                  <div className="text-center space-y-2">
+                    <h3 className="text-2xl font-tech font-bold uppercase tracking-widest text-neon-cyan">Menganalisis Bahan...</h3>
+                    <p className="text-white/40 animate-pulse font-tech text-xs tracking-widest uppercase">
+                      AI sedang meracik bumbu narasi viral untuk {mangaTitle}
+                    </p>
+                  </div>
+
+                  <div className="w-full max-w-md bg-white/5 border border-white/10 h-2 rounded-full overflow-hidden">
+                    <motion.div 
+                      initial={{ width: "0%" }}
+                      animate={{ width: "95%" }}
+                      transition={{ duration: 15 }}
+                      className="h-full bg-gradient-to-r from-neon-cyan to-neon-yellow"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Step 3: Selesai / Results */}
+              {step === 3 && currentProject && (
+                <div className="animate-in fade-in slide-in-from-bottom-10 space-y-8">
+                  <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-1 bg-neon-yellow text-black text-[10px] font-black uppercase rounded">{currentProject.mode}</span>
+                        <span className="px-2 py-1 bg-white/10 text-white/60 text-[10px] font-black uppercase rounded">{currentProject.style}</span>
+                      </div>
+                      <h3 className="text-2xl font-tech font-black text-white">{currentProject.mangaTitle} RECAP</h3>
+                    </div>
+                    
+                    <div className="flex w-full sm:w-auto gap-2">
+                      <button 
+                        onClick={() => setStep(1)}
+                        className="flex-1 sm:flex-none p-3 bg-white/5 hover:bg-white/10 text-white rounded-lg transition-all flex items-center justify-center" title="Ulangi"
+                      >
+                        <RotateCcw size={20} />
+                      </button>
+                      <button 
+                        onClick={() => saveProject(currentProject as ProjectData)}
+                        className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-neon-cyan text-black font-tech font-bold rounded-lg hover:glow-cyan transition-all"
+                      >
+                        <FolderPlus size={18} /> <span className="text-xs">SIMPAN</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className={cn("space-y-6", (!currentProject.hooks?.length && !currentProject.youtubeTitles?.length) ? "lg:col-span-3" : "lg:col-span-2")}>
+                      {/* Script Preview */}
+                      <div className="glass-card border-neon-cyan/30 overflow-hidden flex flex-col">
+                        <div className="flex justify-between items-center px-6 py-3 border-b border-white/10 bg-white/5">
+                          <div className="flex items-center gap-2 font-tech text-xs text-neon-cyan font-bold tracking-widest">
+                            <FileText size={14} /> 
+                            SCRIPT_OUTPUT.LOG
+                          </div>
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => copyToClipboard(currentProject.script || "")}
+                              className="text-[10px] font-bold bg-white/10 px-3 py-1 rounded hover:bg-white/20 transition-colors uppercase"
+                            >
+                              COPY
+                            </button>
+                            <button 
+                              onClick={() => downloadText(`${currentProject.mangaTitle}-script.txt`, currentProject.script || "")}
+                              className="text-[10px] font-bold bg-white/10 px-3 py-1 rounded hover:bg-white/20 transition-colors uppercase"
+                            >
+                              EXPORT .SRT
+                            </button>
+                          </div>
+                        </div>
+                        <div className="p-6 h-[500px] overflow-y-auto bg-black/20 font-sans leading-relaxed whitespace-pre-wrap text-sm text-white/80">
+                          {currentProject.script}
+                        </div>
+                        <div className="p-4 border-t border-white/10 bg-white/5 flex flex-wrap gap-4">
+                          <button 
+                             onClick={handleAddHook}
+                             disabled={isGeneratingHook}
+                             className={cn(
+                               "flex-1 min-w-[140px] py-3 rounded-lg font-tech text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2",
+                               isGeneratingHook ? "bg-white/5 text-white/20" : "bg-neon-yellow/10 text-neon-yellow border border-neon-yellow/20 hover:bg-neon-yellow/30 hover:glow-yellow-sm"
+                             )}
+                           >
+                             {isGeneratingHook ? <RotateCcw size={14} className="animate-spin" /> : <Sparkles size={14} />} 
+                             TAMBAHKAN HOOK
+                           </button>
+                           <button 
+                             onClick={handleAddCTR}
+                             disabled={isGeneratingCTR}
+                             className={cn(
+                               "flex-1 min-w-[140px] py-3 rounded-lg font-tech text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2",
+                               isGeneratingCTR ? "bg-white/5 text-white/20" : "bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/20 hover:bg-neon-cyan/30 hover:glow-cyan-sm"
+                             )}
+                           >
+                             {isGeneratingCTR ? <RotateCcw size={14} className="animate-spin" /> : <Zap size={14} />} 
+                             GENERATE CTR
+                           </button>
+                        </div>
+                      </div>
+
+                      {/* Video Structure / Scenes */}
+                      {currentProject.scenes && currentProject.scenes.length > 0 && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {currentProject.scenes?.map((scene, i) => (
+                            <div key={i} className="glass-card border-white/5 bg-white/[0.02] p-4 text-xs">
+                              <div className="text-neon-cyan font-tech mb-1">{scene.title}</div>
+                              <p className="text-white/40 whitespace-pre-wrap">{scene.narrative}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {(currentProject.hooks?.length ?? 0) > 0 || (currentProject.youtubeTitles?.length ?? 0) > 0 ? (
+                      <div className="space-y-6">
+                        {/* Viral Hook Generator */}
+                        {currentProject.hooks && currentProject.hooks.length > 0 && (
+                          <div className="glass-card border-neon-yellow/30 p-5 space-y-4">
+                            <div className="flex items-center gap-2 text-neon-yellow font-tech text-xs uppercase font-bold">
+                              <Sparkles size={16} /> Viral Hooks
+                            </div>
+                            <div className="space-y-3">
+                              {currentProject.hooks?.map((hook, i) => (
+                                <div key={i} className="group relative">
+                                  <div className={cn(
+                                    "p-3 bg-white/5 rounded text-[11px] leading-snug transition-all border-l-2 text-white/80",
+                                    i % 2 === 0 ? "border-neon-yellow" : "border-neon-cyan"
+                                  )}>
+                                    {hook}
+                                  </div>
+                                  <button 
+                                    onClick={() => copyToClipboard(hook)}
+                                    className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 p-1 text-neon-cyan"
+                                  >
+                                    <Copy size={12} />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* SEO Tools */}
+                        {(currentProject.youtubeTitles?.length || currentProject.thumbnailIdeas?.length) ? (
+                          <div className="glass-card border-white/10 p-5 space-y-4">
+                            <div className="flex items-center gap-2 text-neon-cyan font-tech text-[10px] uppercase font-bold tracking-widest">
+                              <Play size={14} className="text-neon-cyan" /> YouTube Pack
+                            </div>
+                            
+                            {currentProject.youtubeTitles && currentProject.youtubeTitles.length > 0 && (
+                              <div className="space-y-2">
+                                <div className="text-[10px] uppercase font-tech text-white/30 tracking-widest">Auto Judul Suggestion</div>
+                                {currentProject.youtubeTitles?.map((title, i) => (
+                                  <div key={i} className="text-[11px] font-medium p-1 truncate hover:text-neon-yellow transition-colors cursor-pointer">🔥 {title}</div>
+                                ))}
+                              </div>
+                            )}
+
+                            {currentProject.thumbnailIdeas && currentProject.thumbnailIdeas.length > 0 && (
+                              <div className="pt-2 border-t border-white/5 space-y-2">
+                                <div className="text-[10px] uppercase font-tech text-white/30 tracking-widest">Thumbnail Concept</div>
+                                {currentProject.thumbnailIdeas?.map((idea, i) => (
+                                  <div key={i} className="p-3 bg-neon-cyan/5 rounded border border-neon-cyan/10">
+                                    <div className="text-neon-cyan font-bold text-xs uppercase tracking-tighter">Text: "{idea.text}"</div>
+                                    <div className="text-[10px] text-white/60 mt-1">{idea.concept}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {currentProject.durationEstimate && currentProject.durationEstimate !== "~0:00" && (
+                              <div className="pt-2 border-t border-white/5 flex justify-between items-center">
+                                <div className="text-[10px] uppercase font-tech text-white/30">Estimation</div>
+                                <div className="text-neon-cyan font-tech text-xs">{currentProject.durationEstimate}</div>
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+
+                        {/* Visual Studio */}
+                        <div className="glass-card border-none bg-white/[0.02] p-5 space-y-4">
+                          <div className="flex items-center gap-2 text-neon-magenta font-tech text-xs uppercase font-bold">
+                            <ImageIcon size={16} /> Asset Visual Generator
+                          </div>
+                          <div className="space-y-3">
+                            <textarea 
+                              value={imagePrompt}
+                              onChange={(e) => setImagePrompt(e.target.value)}
+                              placeholder="Deskripsikan aset visual (misal: Protagonis badass dengan aura petir)..."
+                              className="w-full bg-black/40 border border-white/10 rounded p-3 text-xs text-white/80 outline-none focus:border-neon-magenta transition-all h-20 resize-none"
+                            />
+                            <button 
+                              onClick={handleGenerateImage}
+                              disabled={isGeneratingImage || !imagePrompt}
+                              className={cn(
+                                "w-full py-3 rounded-lg font-tech text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2",
+                                isGeneratingImage ? "bg-white/5 text-white/20" : "bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/20 hover:bg-neon-magenta/20"
+                              )}
+                            >
+                              {isGeneratingImage ? <RotateCcw size={14} className="animate-spin" /> : <Zap size={14} />} 
+                              TEMPA VISUAL ASSET
+                            </button>
+
+                            {currentProject.generatedAssets && currentProject.generatedAssets.length > 0 && (
+                              <div className="grid grid-cols-1 gap-2 mt-4">
+                                {currentProject.generatedAssets.map((asset, i) => (
+                                  <div key={i} className="relative group rounded overflow-hidden border border-white/10 aspect-video bg-black/50">
+                                    <img src={asset} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                      <button 
+                                        onClick={() => {
+                                          const link = document.createElement('a');
+                                          link.href = asset;
+                                          link.download = `asset-${i}.png`;
+                                          link.click();
+                                        }}
+                                        className="p-2 bg-neon-cyan text-black rounded-full"
+                                      >
+                                        <Download size={14} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Export CTA */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <button 
+                            onClick={() => downloadText(`${currentProject.mangaTitle}-subs.srt`, "1\n00:00:01,000 --> 00:00:04,000\nSubtitle generated by AniKi IF")}
+                            className="flex flex-col items-center justify-center gap-1 py-4 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-all text-white/60"
+                          >
+                            <FileText size={20} />
+                            <span className="text-[9px] font-tech font-black tracking-tighter">SRT</span>
+                          </button>
+                          <button className="flex flex-col items-center justify-center gap-1 py-4 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-all text-white/60">
+                            <Music size={20} />
+                            <span className="text-[9px] font-tech font-black tracking-tighter">VOICE</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="lg:col-span-1 space-y-6">
+                         {/* Export Tools */}
+                         <div className="glass-card border-white/10 p-5 space-y-4">
+                           <div className="text-[10px] uppercase font-tech text-white/30 tracking-widest mb-2">Export Tools</div>
+                           <div className="grid grid-cols-2 gap-2">
+                             <button 
+                               onClick={() => downloadText(`${currentProject.mangaTitle}-subs.srt`, "1\n00:00:01,000 --> 00:00:04,000\nSubtitle generated by AniKi IF")}
+                               className="flex flex-col items-center justify-center gap-1 py-4 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-all text-white/60"
+                             >
+                               <FileText size={20} />
+                               <span className="text-[9px] font-tech font-black tracking-tighter">SRT</span>
+                             </button>
+                             <button className="flex flex-col items-center justify-center gap-1 py-4 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-all text-white/60">
+                               <Music size={20} />
+                               <span className="text-[9px] font-tech font-black tracking-tighter">VOICE</span>
+                             </button>
+                           </div>
+                         </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="projects"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="max-w-6xl mx-auto"
+            >
+              <div className="mb-8 lg:mb-12">
+                <h2 className="text-3xl lg:text-4xl font-black font-tech uppercase tracking-tighter mb-2">
+                  ARCHIVE <span className="text-neon-cyan">PROJECTS</span>
+                </h2>
+                <p className="text-white/50 text-sm lg:text-base">Kelola riwayat tempa naskah kamu di sini.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {projects.length === 0 ? (
+                  <div className="col-span-full py-20 flex flex-col items-center opacity-20">
+                    <FolderPlus size={64} />
+                    <p className="mt-4 font-tech uppercase tracking-widest text-sm">Belum ada proyek simpanan</p>
+                  </div>
+                ) : (
+                  projects.map((p) => (
+                    <div key={p.id} className="glass-card group hover:neon-border-cyan transition-all">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="text-[10px] font-tech text-white/40 uppercase">DIBUAT PADA {new Date(p.createdAt).toLocaleDateString()}</div>
+                        <button 
+                          onClick={() => {
+                            const filtered = projects.filter(item => item.id !== p.id);
+                            setProjects(filtered);
+                            syncStorage(filtered);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-1 text-red-500 hover:bg-red-500/10 rounded transition-all"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      <h4 className="text-lg font-bold truncate mb-2">{p.title}</h4>
+                      <div className="flex flex-wrap gap-1 mb-4">
+                        <span className="px-2 py-0.5 bg-neon-cyan/10 text-neon-cyan text-[9px] rounded uppercase font-tech">{p.format}</span>
+                        <span className="px-2 py-0.5 bg-neon-yellow/10 text-neon-yellow text-[9px] rounded uppercase font-tech">{p.mode}</span>
+                        <span className="px-2 py-0.5 bg-white/5 text-white/40 text-[9px] rounded uppercase font-tech">{p.style}</span>
+                        {p.generatedAssets && p.generatedAssets.length > 0 && (
+                          <span className="px-2 py-0.5 bg-neon-magenta/10 text-neon-magenta text-[9px] rounded uppercase font-tech">
+                            {p.generatedAssets.length} Visual Assets
+                          </span>
+                        )}
+                      </div>
+                      <button 
+                        onClick={() => {
+                          setCurrentProject(p);
+                          setStep(3);
+                          setActiveTab("create");
+                        }}
+                        className="w-full py-2 bg-white/5 hover:bg-neon-cyan hover:text-black transition-all rounded text-[10px] font-tech uppercase tracking-widest"
+                      >
+                        BUKA PROYEK
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
+
+      {/* Footer Info */}
+      <footer className="fixed bottom-4 left-4 lg:left-auto lg:right-4 z-40">
+        <div className="glass-card border-none bg-black/80 flex items-center gap-4 px-4 py-2 text-[8px] lg:text-[10px] font-tech text-white/60 shadow-2xl">
+          <LinkIcon size={10} className="text-neon-cyan" />
+          ANI-KI IF INTEGRATED
+          <div className="w-[1px] h-3 bg-white/10" />
+          V 2.0.4-BETA
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+const Music = ({ size, className }: { size?: number, className?: string }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    width={size || 24} 
+    height={size || 24} 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    <path d="M9 18V5l12-2v13" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="16" r="3" />
+  </svg>
+);
+
