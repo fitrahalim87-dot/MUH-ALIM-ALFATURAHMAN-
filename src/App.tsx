@@ -27,7 +27,9 @@ import {
   Sparkles,
   Maximize2,
   Minimize2,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Settings,
+  Key
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useDropzone } from "react-dropzone";
@@ -80,7 +82,7 @@ const FeatureCard = ({ title, value, icon: Icon }: { title: string, value: strin
 // --- Main App ---
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"create" | "projects">("create");
+  const [activeTab, setActiveTab] = useState<"create" | "projects" | "settings">("create");
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [isGeneratingHook, setIsGeneratingHook] = useState(false);
@@ -91,13 +93,15 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   
+  // Custom API Key States
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [isApiKeySaved, setIsApiKeySaved] = useState(false);
+  
   // Form State
   const [mangaTitle, setMangaTitle] = useState("");
   const [format, setFormat] = useState<FormatType>("Manhwa");
   const [style, setStyle] = useState<ScriptStyle>("Santai Tongkrongan");
   const [mode, setMode] = useState<ScriptMode>("Kilat");
-  const [minWords, setMinWords] = useState(250);
-  const [maxWords, setMaxWords] = useState(500);
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [mangaLink, setMangaLink] = useState("");
   
@@ -107,6 +111,12 @@ export default function App() {
   useEffect(() => {
     const saved = localStorage.getItem("aniki-projects");
     if (saved) setProjects(JSON.parse(saved));
+
+    const savedKey = localStorage.getItem("aniki-gemini-api-key");
+    if (savedKey) {
+      setApiKeyInput(savedKey);
+      setIsApiKeySaved(true);
+    }
 
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
@@ -168,8 +178,6 @@ export default function App() {
         format,
         style,
         mode,
-        minWords,
-        maxWords,
         imageDatas: uploadedImages
       });
       
@@ -302,9 +310,9 @@ export default function App() {
       <header className="lg:hidden flex items-center justify-between p-4 bg-black/80 backdrop-blur-xl border-b border-white/10 sticky top-0 z-50">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-neon-yellow flex items-center justify-center font-black text-black text-sm rounded-sm -skew-x-12 glow-yellow">
-            AK
+            MO
           </div>
-          <h1 className="font-tech font-black text-sm tracking-tighter italic uppercase">ANIKI <span className="text-white">IF</span></h1>
+          <h1 className="font-tech font-black text-sm tracking-tighter italic uppercase">MANGA ONLY <span className="text-white">STUDIO</span></h1>
         </div>
         <div className="flex items-center gap-2">
           <button 
@@ -343,11 +351,11 @@ export default function App() {
       )}>
         <div className="hidden lg:flex items-center gap-3">
           <div className="w-10 h-10 bg-neon-yellow flex items-center justify-center font-black text-black text-xl rounded-sm -skew-x-12 glow-yellow">
-            AK
+            MO
           </div>
           <div>
-            <h1 className="font-tech font-black text-lg tracking-tighter italic uppercase leading-none">ANIKI <span className="text-white">IF</span></h1>
-            <p className="text-[10px] uppercase tracking-widest text-neon-cyan leading-none mt-1">Manga Recap AI System</p>
+            <h1 className="font-tech font-black text-md tracking-tighter italic uppercase leading-none">MANGA ONLY <span className="text-white">STUDIO</span></h1>
+            <p className="text-[10px] uppercase tracking-widest text-neon-cyan leading-none mt-1">AI Manga Storyteller</p>
           </div>
         </div>
 
@@ -364,6 +372,12 @@ export default function App() {
             active={activeTab === "projects"} 
             onClick={() => { setActiveTab("projects"); setIsSidebarOpen(false); }} 
           />
+          <SidebarItem 
+            icon={Settings} 
+            label="PENGATURAN API" 
+            active={activeTab === "settings"} 
+            onClick={() => { setActiveTab("settings"); setIsSidebarOpen(false); }} 
+          />
           <button 
             onClick={toggleFullscreen}
             className="w-full flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 group text-[10px] font-tech uppercase tracking-widest text-white/50 hover:text-white hover:bg-white/5 mt-auto"
@@ -375,9 +389,15 @@ export default function App() {
 
         <div className="mt-auto glass-card border-neon-yellow/20 p-3">
           <div className="text-[10px] uppercase font-tech text-neon-yellow mb-2">System Status</div>
-          <div className="flex items-center gap-2 text-xs">
-            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            AI Core: Online
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-xs">
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              AI Core: Online
+            </div>
+            <div className="flex items-center gap-2 text-[10px] text-white/50 font-mono">
+              <Key size={10} className={isApiKeySaved ? "text-neon-cyan animate-pulse" : "text-white/30"} />
+              Key: {isApiKeySaved ? "CUSTOM KEY" : "DEFAULT AI STUDIO"}
+            </div>
           </div>
         </div>
       </aside>
@@ -442,46 +462,7 @@ export default function App() {
                         />
                       </div>
 
-                      <div className="space-y-1">
-                        <div className="flex justify-between items-center">
-                          <label className="text-[10px] uppercase font-tech text-white/50 tracking-wider">Jumlah Kata</label>
-                          <span className="text-[10px] font-tech text-neon-cyan">{minWords} - {maxWords} KATA</span>
-                        </div>
-                        <div className="flex gap-4">
-                          <div className="flex-1 space-y-1">
-                            <span className="text-[8px] text-white/30 uppercase">Min</span>
-                            <input 
-                              type="range" 
-                              min="50" 
-                              max="3000" 
-                              step="50"
-                              value={minWords}
-                              onChange={(e) => {
-                                const val = parseInt(e.target.value);
-                                setMinWords(val);
-                                if (val > maxWords) setMaxWords(val);
-                              }}
-                              className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-neon-yellow"
-                            />
-                          </div>
-                          <div className="flex-1 space-y-1">
-                            <span className="text-[8px] text-white/30 uppercase">Max</span>
-                            <input 
-                              type="range" 
-                              min="50" 
-                              max="3000" 
-                              step="50"
-                              value={maxWords}
-                              onChange={(e) => {
-                                const val = parseInt(e.target.value);
-                                setMaxWords(val);
-                                if (val < minWords) setMinWords(val);
-                              }}
-                              className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-neon-cyan"
-                            />
-                          </div>
-                        </div>
-                      </div>
+                      {/* Word count features removed per user request */}
 
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -553,11 +534,18 @@ export default function App() {
                           placeholder="Masukkan link web manga (optional)..." 
                           className="flex-1 bg-black/50 border border-white/10 rounded-lg px-4 py-2 text-xs outline-none focus:border-neon-magenta"
                         />
-                        <button className="px-4 py-2 bg-neon-magenta/20 text-neon-magenta border border-neon-magenta/40 rounded-lg text-[10px] font-tech hover:bg-neon-magenta/30 transition-all">
+                        <a 
+                          href="https://sites.google.com/view/aniimage/aniimage" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="px-4 py-2 bg-neon-magenta/20 text-neon-magenta border border-neon-magenta/40 rounded-lg text-[10px] font-tech hover:bg-neon-magenta/30 transition-all flex items-center justify-center pointer-events-auto"
+                        >
                           EXTRACT
-                        </button>
+                        </a>
                       </div>
-                      <p className="text-[10px] text-white/30 italic">*Fitur ini akan mengekstrak semua panel dari link yang diberikan.</p>
+                      <p className="text-[10px] text-white/30 italic">
+                        *Klik EXTRACT untuk membuka tools pengunduh manga eksternal kami.
+                      </p>
                     </div>
                   </div>
 
@@ -875,7 +863,7 @@ export default function App() {
                         {/* Export CTA */}
                         <div className="grid grid-cols-2 gap-2">
                           <button 
-                            onClick={() => downloadText(`${currentProject.mangaTitle}-subs.srt`, "1\n00:00:01,000 --> 00:00:04,000\nSubtitle generated by AniKi IF")}
+                            onClick={() => downloadText(`${currentProject.mangaTitle}-subs.srt`, "1\n00:00:01,000 --> 00:00:04,000\nSubtitle generated by Manga Only Studio")}
                             className="flex flex-col items-center justify-center gap-1 py-4 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-all text-white/60"
                           >
                             <FileText size={20} />
@@ -894,7 +882,7 @@ export default function App() {
                            <div className="text-[10px] uppercase font-tech text-white/30 tracking-widest mb-2">Export Tools</div>
                            <div className="grid grid-cols-2 gap-2">
                              <button 
-                               onClick={() => downloadText(`${currentProject.mangaTitle}-subs.srt`, "1\n00:00:01,000 --> 00:00:04,000\nSubtitle generated by AniKi IF")}
+                               onClick={() => downloadText(`${currentProject.mangaTitle}-subs.srt`, "1\n00:00:01,000 --> 00:00:04,000\nSubtitle generated by Manga Only Studio")}
                                className="flex flex-col items-center justify-center gap-1 py-4 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-all text-white/60"
                              >
                                <FileText size={20} />
@@ -912,7 +900,7 @@ export default function App() {
                 </div>
               )}
             </motion.div>
-          ) : (
+          ) : activeTab === "projects" ? (
             <motion.div 
               key="projects"
               initial={{ opacity: 0, scale: 0.95 }}
@@ -973,6 +961,94 @@ export default function App() {
                     </div>
                   ))
                 )}
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="settings"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="max-w-2xl mx-auto"
+            >
+              <div className="mb-8 lg:mb-12">
+                <h2 className="text-3xl lg:text-4xl font-black font-tech uppercase tracking-tighter mb-2">
+                  PENGATURAN <span className="text-neon-cyan">API KEY</span>
+                </h2>
+                <p className="text-white/50 text-sm lg:text-base">Gunakan Google AI Studio API Key Anda sendiri untuk melompati batas kuota bawaan.</p>
+              </div>
+
+              <div className="glass-card border-white/10 p-6 space-y-6">
+                <div className="flex items-center gap-3 border-b border-white/10 pb-4">
+                  <Key size={24} className="text-neon-cyan animate-pulse" />
+                  <div>
+                    <h3 className="font-tech text-xs uppercase tracking-widest text-white">Google AI Studio (Gemini) API Key</h3>
+                    <p className="text-[10px] text-white/40 font-mono">Kunci ini disimpan dengan aman di penyimpanan lokal (localStorage) browser Anda.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-tech text-white/50 tracking-wider">Masukkan API Key Gemini Anda</label>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input 
+                        type="password" 
+                        value={apiKeyInput}
+                        onChange={(e) => setApiKeyInput(e.target.value)}
+                        placeholder="AIzaSy..." 
+                        className="flex-1 bg-black/50 border border-white/20 rounded px-4 py-2.5 text-xs text-neon-yellow outline-none focus:border-neon-cyan font-mono transition-all animate-pulse-slow"
+                      />
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => {
+                            if (!apiKeyInput.trim()) {
+                              alert("API Key tidak boleh kosong, cuy!");
+                              return;
+                            }
+                            localStorage.setItem("aniki-gemini-api-key", apiKeyInput.trim());
+                            setIsApiKeySaved(true);
+                            confetti({
+                              particleCount: 80,
+                              spread: 50,
+                              colors: ["#22d3ee"]
+                            });
+                            alert("API Key kustom berhasil tersimpan!");
+                          }}
+                          className="px-5 py-2.5 bg-neon-cyan text-black text-[10px] font-tech uppercase tracking-widest font-bold rounded hover:bg-neon-cyan/80 transition-all shadow-[0_0_15px_rgba(34,211,238,0.2)]"
+                        >
+                          SIMPAN
+                        </button>
+                        {isApiKeySaved && (
+                          <button 
+                            onClick={() => {
+                              localStorage.removeItem("aniki-gemini-api-key");
+                              setApiKeyInput("");
+                              setIsApiKeySaved(false);
+                              alert("Kunci kustom telah dihapus. Sistem akan beralih menggunakan Kunci Default.");
+                            }}
+                            className="px-4 py-2 bg-red-500/10 text-red-500 border border-red-500/20 text-[10px] font-tech uppercase tracking-widest rounded hover:bg-red-500/25 transition-all"
+                          >
+                            HAPUS
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white/5 border border-white/5 rounded-lg p-5 space-y-3 text-xs text-white/70 leading-relaxed">
+                  <h4 className="font-tech text-[10px] uppercase tracking-wider text-neon-yellow">Cara Mendapatkan API Key Gratis:</h4>
+                  <ol className="list-decimal list-inside space-y-1.5 text-white/60">
+                    <li>Buka platform <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="text-neon-cyan hover:underline inline-flex items-center gap-1 font-semibold">Google AI Studio <LinkIcon size={12} className="inline" /></a></li>
+                    <li>Masuk menggunakan akun Google Anda.</li>
+                    <li>Klik tombol <strong className="text-white">"Get API key"</strong> di sudut kiri atas.</li>
+                    <li>Klik tombol <strong className="text-white">"Create API key"</strong>, pilih proyek baru atau yang sudah ada, lalu salin kuncinya.</li>
+                    <li>Tempelkan kunci tersebut pada kolom di atas lalu klik <strong className="text-neon-cyan font-bold">SIMPAN</strong>!</li>
+                  </ol>
+                  <p className="text-[10px] text-white/40 italic pt-2 border-t border-white/5">
+                    *Catatan: API Key Anda tidak pernah dikirim ke server kami atau pihak ketiga manapun. Semua interaksi terhubung langsung dari browser Anda ke endpoint resmi Google Gemini API client-side.
+                  </p>
+                </div>
               </div>
             </motion.div>
           )}
