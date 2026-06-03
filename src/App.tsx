@@ -102,7 +102,7 @@ export default function App() {
   const [format, setFormat] = useState<FormatType>("Manhwa");
   const [style, setStyle] = useState<ScriptStyle>("Santai Tongkrongan");
   const [mode, setMode] = useState<ScriptMode>("Kilat");
-  const [uploadedImages, setUploadedImages] = useState<{ name: string; data: string }[]>([]);
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [mangaLink, setMangaLink] = useState("");
   
   // Results State
@@ -178,7 +178,7 @@ export default function App() {
         format,
         style,
         mode,
-        imageDatas: uploadedImages.map(img => img.data)
+        imageDatas: uploadedImages
       });
       
       const parsed = parseGeminiResponse(rawResponse);
@@ -191,7 +191,7 @@ export default function App() {
         mode,
         script: rawResponse,
         ...parsed,
-        images: uploadedImages.map(img => img.data),
+        images: uploadedImages,
         generatedAssets: [],
         createdAt: Date.now()
       };
@@ -209,9 +209,9 @@ export default function App() {
 
   const onDrop = async (acceptedFiles: File[]) => {
     const filePromises = acceptedFiles.map(file => {
-      return new Promise<{ name: string; data: string }>((resolve, reject) => {
+      return new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => resolve({ name: file.name, data: reader.result as string });
+        reader.onload = () => resolve(reader.result as string);
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
@@ -219,13 +219,7 @@ export default function App() {
 
     try {
       const results = await Promise.all(filePromises);
-      setUploadedImages(prev => {
-        const combined = [...prev, ...results];
-        // Sort automatically by filename in natural ordering (e.g. Gambar_1, Gambar_2, Gambar_10)
-        return combined.sort((a, b) => 
-          a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
-        );
-      });
+      setUploadedImages(prev => [...prev, ...results]);
     } catch (err) {
       console.error("Error reading files:", err);
       alert("Gagal membaca beberapa file.");
@@ -588,11 +582,8 @@ export default function App() {
                           <div className="grid grid-cols-3 gap-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
                             {uploadedImages.map((img, i) => (
                               <div key={i} className="relative group aspect-square">
-                                <img src={img.data} className="w-full h-full object-cover rounded border border-white/10" />
-                                <div className="absolute bottom-1 left-1 right-1 bg-black/80 px-1.5 py-0.5 rounded text-[8px] font-tech text-neon-yellow border border-neon-yellow/30 truncate" title={img.name}>
-                                  {img.name}
-                                </div>
-                                <div className="absolute top-1 left-1 bg-neon-cyan/90 text-black font-black px-1 rounded text-[8px]">
+                                <img src={img} className="w-full h-full object-cover rounded border border-white/10" />
+                                <div className="absolute top-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[8px] font-tech text-neon-yellow border border-neon-yellow/30">
                                   #{i + 1}
                                 </div>
                                 <button 
