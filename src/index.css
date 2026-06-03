@@ -12,9 +12,13 @@
 }
 
 @layer base {
-  body {
+  html, body {
     @apply bg-bg-dark text-white font-sans antialiased overflow-x-hidden;
   }
+}
+
+:fullscreen, :fullscreen * {
+  background-color: #050505 !important;
 }
 
 @layer components {
