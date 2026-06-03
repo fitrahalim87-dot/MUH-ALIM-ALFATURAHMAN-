@@ -102,8 +102,7 @@ export default function App() {
   const [format, setFormat] = useState<FormatType>("Manhwa");
   const [style, setStyle] = useState<ScriptStyle>("Santai Tongkrongan");
   const [mode, setMode] = useState<ScriptMode>("Kilat");
-  const [uploadedFiles, setUploadedFiles] = useState<{ name: string; data: string }[]>([]);
-  const uploadedImages = uploadedFiles.map(f => f.data);
+  const [uploadedImages, setUploadedImages] = useState<{ name: string; data: string }[]>([]);
   const [mangaLink, setMangaLink] = useState("");
   
   // Results State
@@ -179,7 +178,7 @@ export default function App() {
         format,
         style,
         mode,
-        imageDatas: uploadedImages
+        imageDatas: uploadedImages.map(img => img.data)
       });
       
       const parsed = parseGeminiResponse(rawResponse);
@@ -192,7 +191,7 @@ export default function App() {
         mode,
         script: rawResponse,
         ...parsed,
-        images: uploadedImages,
+        images: uploadedImages.map(img => img.data),
         generatedAssets: [],
         createdAt: Date.now()
       };
@@ -220,9 +219,9 @@ export default function App() {
 
     try {
       const results = await Promise.all(filePromises);
-      setUploadedFiles(prev => {
+      setUploadedImages(prev => {
         const combined = [...prev, ...results];
-        // Urutkan gambar berdasarkan nama file secara natural (numeric)
+        // Sort automatically by filename in natural ordering (e.g. Gambar_1, Gambar_2, Gambar_10)
         return combined.sort((a, b) => 
           a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
         );
@@ -580,7 +579,7 @@ export default function App() {
                           <div className="flex justify-between items-center px-1">
                             <span className="text-[10px] font-tech text-white/40 uppercase tracking-widest">{uploadedImages.length} Panel Terpilih</span>
                             <button 
-                              onClick={() => setUploadedFiles([])}
+                              onClick={() => setUploadedImages([])}
                               className="text-[10px] font-tech text-red-400 hover:text-red-300 uppercase tracking-widest"
                             >
                               Bersihkan Semua
@@ -589,18 +588,17 @@ export default function App() {
                           <div className="grid grid-cols-3 gap-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
                             {uploadedImages.map((img, i) => (
                               <div key={i} className="relative group aspect-square">
-                                <img 
-                                  src={img} 
-                                  title={uploadedFiles[i]?.name} 
-                                  className="w-full h-full object-cover rounded border border-white/10" 
-                                />
-                                <div className="absolute top-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[8px] font-tech text-neon-yellow border border-neon-yellow/30 max-w-[80%] truncate">
-                                  #{i + 1} {uploadedFiles[i]?.name && `(${uploadedFiles[i].name})`}
+                                <img src={img.data} className="w-full h-full object-cover rounded border border-white/10" />
+                                <div className="absolute bottom-1 left-1 right-1 bg-black/80 px-1.5 py-0.5 rounded text-[8px] font-tech text-neon-yellow border border-neon-yellow/30 truncate" title={img.name}>
+                                  {img.name}
+                                </div>
+                                <div className="absolute top-1 left-1 bg-neon-cyan/90 text-black font-black px-1 rounded text-[8px]">
+                                  #{i + 1}
                                 </div>
                                 <button 
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setUploadedFiles(prev => prev.filter((_, idx) => idx !== i));
+                                    setUploadedImages(prev => prev.filter((_, idx) => idx !== i));
                                   }}
                                   className="absolute top-1 right-1 p-1 bg-black/80 text-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                                 >
